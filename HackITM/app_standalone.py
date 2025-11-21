@@ -175,6 +175,133 @@ class ResumeProcessor:
         
         return list(set(found_skills))
     
+    def extract_ats_keywords(self, job_description):
+        """Extract comprehensive ATS keywords from job description"""
+        if not job_description:
+            return {
+                'skills': [],
+                'technologies': [],
+                'qualifications': [],
+                'soft_skills': [],
+                'certifications': [],
+                'education_keywords': [],
+                'experience_keywords': [],
+                'all_keywords': []
+            }
+        
+        jd_lower = job_description.lower()
+        keywords = {
+            'skills': [],
+            'technologies': [],
+            'qualifications': [],
+            'soft_skills': [],
+            'certifications': [],
+            'education_keywords': [],
+            'experience_keywords': [],
+            'all_keywords': []
+        }
+        
+        # Technical Skills
+        technical_keywords = [
+            'python', 'java', 'javascript', 'typescript', 'sql', 'html', 'css', 'react', 'angular', 'vue',
+            'node.js', 'express', 'django', 'flask', 'spring', 'c++', 'c#', '.net', 'php', 'ruby', 'go',
+            'rust', 'swift', 'kotlin', 'scala', 'r', 'matlab', 'bash', 'powershell', 'shell scripting'
+        ]
+        
+        # Technologies & Tools
+        tech_tools = [
+            'aws', 'azure', 'gcp', 'docker', 'kubernetes', 'terraform', 'jenkins', 'git', 'github', 'gitlab',
+            'ci/cd', 'devops', 'agile', 'scrum', 'jira', 'confluence', 'mongodb', 'postgresql', 'mysql',
+            'redis', 'elasticsearch', 'kafka', 'rabbitmq', 'nginx', 'apache', 'linux', 'windows', 'macos',
+            'tableau', 'power bi', 'excel', 'pandas', 'numpy', 'tensorflow', 'pytorch', 'keras', 'scikit-learn'
+        ]
+        
+        # Soft Skills
+        soft_skills_list = [
+            'leadership', 'communication', 'teamwork', 'collaboration', 'problem solving', 'critical thinking',
+            'analytical', 'creative', 'adaptable', 'time management', 'project management', 'presentation',
+            'negotiation', 'mentoring', 'coaching', 'stakeholder management', 'client relations'
+        ]
+        
+        # Qualifications & Requirements
+        qualification_keywords = [
+            'bachelor', 'master', 'phd', 'degree', 'certification', 'certified', 'years of experience',
+            'minimum', 'required', 'preferred', 'must have', 'should have', 'proven track record'
+        ]
+        
+        # Education Keywords
+        education_keywords = [
+            'computer science', 'engineering', 'information technology', 'data science', 'business',
+            'mba', 'bachelor of science', 'master of science', 'phd', 'doctorate'
+        ]
+        
+        # Experience Keywords
+        experience_keywords = [
+            'years of experience', 'yoe', 'senior', 'junior', 'mid-level', 'entry level', 'experienced',
+            'expert', 'proficient', 'advanced', 'intermediate', 'beginner'
+        ]
+        
+        # Extract keywords
+        for keyword in technical_keywords:
+            if keyword in jd_lower:
+                keywords['skills'].append(keyword.title())
+        
+        for keyword in tech_tools:
+            if keyword in jd_lower:
+                keywords['technologies'].append(keyword.upper() if keyword.isupper() else keyword.title())
+        
+        for keyword in soft_skills_list:
+            if keyword in jd_lower:
+                keywords['soft_skills'].append(keyword.title())
+        
+        # Extract certifications
+        cert_patterns = [
+            r'\b(?:AWS|Azure|GCP|Google Cloud|Microsoft|Oracle|Cisco|PMP|Scrum|Agile)\s+(?:Certified|Certification|Certificate)',
+            r'\b(?:Certified|Certification)\s+(?:in|for)\s+([A-Za-z\s]+)',
+            r'\b([A-Z]{2,10})\s+Certification'
+        ]
+        for pattern in cert_patterns:
+            matches = re.findall(pattern, job_description, re.IGNORECASE)
+            for match in matches:
+                if isinstance(match, tuple):
+                    keywords['certifications'].extend([m.strip() for m in match if m.strip()])
+                else:
+                    keywords['certifications'].append(match.strip())
+        
+        # Extract qualifications
+        for keyword in qualification_keywords:
+            if keyword in jd_lower:
+                keywords['qualifications'].append(keyword.title())
+        
+        # Extract education keywords
+        for keyword in education_keywords:
+            if keyword in jd_lower:
+                keywords['education_keywords'].append(keyword.title())
+        
+        # Extract experience keywords
+        for keyword in experience_keywords:
+            if keyword in jd_lower:
+                keywords['experience_keywords'].append(keyword.title())
+        
+        # Also extract from skills list
+        jd_skills = self.extract_skills_from_jd(job_description)
+        keywords['skills'].extend([s for s in jd_skills if s.lower() not in [k.lower() for k in keywords['skills']]])
+        
+        # Combine all keywords
+        all_keywords = []
+        for category in ['skills', 'technologies', 'soft_skills', 'certifications', 'qualifications', 
+                        'education_keywords', 'experience_keywords']:
+            all_keywords.extend(keywords[category])
+        
+        keywords['all_keywords'] = list(set([k.lower() for k in all_keywords]))
+        
+        # Remove duplicates from each category
+        for category in keywords:
+            if category != 'all_keywords':
+                keywords[category] = list(set(keywords[category]))
+        
+        return keywords
+    
     def analyze_resume_profile(self, resume_text, jd_skills):
         """Analyze resume against job description skills"""
         if not resume_text or not jd_skills:
@@ -212,19 +339,20 @@ class ResumeProcessor:
         if user_info is None:
             user_info = {}
         
-        # Use Ollama to generate unique resume content
-        if ollama_ai:
-            try:
-                resume = ollama_ai.generate_complete_resume(user_info, job_title, job_description)
-                if resume:
-                    return resume.strip()
-                else:
-                    st.warning("Ollama generation failed, using fallback method.")
-            except Exception as e:
-                st.error(f"Error using Ollama: {str(e)}")
-                raise
+        # Use Ollama to generate unique resume content - MANDATORY
+        if not ollama_ai:
+            raise RuntimeError("Ollama AI is required but not provided")
         
-        # Fallback (should not be reached if Ollama is mandatory)
+        try:
+            resume = ollama_ai.generate_complete_resume(user_info, job_title, job_description)
+            if not resume:
+                raise RuntimeError("Ollama returned empty response. Please try again or check your model.")
+            return resume.strip()
+        except Exception as e:
+            # Re-raise with better context
+            if isinstance(e, (TimeoutError, ConnectionError, RuntimeError)):
+                raise
+            raise RuntimeError(f"Failed to generate resume: {str(e)}")
         jd_skills = self.extract_skills_from_jd(job_description)
         name = user_info.get('name', 'Your Name')
         email = user_info.get('email', 'your.email@example.com')
@@ -302,20 +430,20 @@ EDUCATION
         if not resume_text:
             return "No resume content provided."
         
-        # Use Ollama to completely rewrite the resume
-        if ollama_ai:
-            try:
-                tailored = ollama_ai.tailor_resume(resume_text, job_description, job_title)
-                if tailored:
-                    return tailored
-                else:
-                    st.warning("Ollama tailoring failed, using fallback method.")
-            except Exception as e:
-                st.error(f"Error using Ollama: {str(e)}")
-                raise
+        # Use Ollama to completely rewrite the resume - MANDATORY
+        if not ollama_ai:
+            raise RuntimeError("Ollama AI is required but not provided")
         
-        # Fallback (should not be reached if Ollama is mandatory)
-        return resume_text
+        try:
+            tailored = ollama_ai.tailor_resume(resume_text, job_description, job_title)
+            if not tailored:
+                raise RuntimeError("Ollama returned empty response. Please try again or check your model.")
+            return tailored
+        except Exception as e:
+            # Re-raise with better context
+            if isinstance(e, (TimeoutError, ConnectionError, RuntimeError)):
+                raise
+            raise RuntimeError(f"Failed to tailor resume: {str(e)}")
 
 # ============================================================================
 # AI INTEGRATION WITH OLLAMA
@@ -324,7 +452,7 @@ EDUCATION
 class OllamaAI:
     """AI integration using Ollama for resume enhancement - MANDATORY"""
     
-    def __init__(self, base_url="http://localhost:11434", model="llama2"):
+    def __init__(self, base_url="http://localhost:11434", model="deepseek-r1:1.5b"):
         self.base_url = base_url
         self.model = model
         self.available = OLLAMA_AVAILABLE
@@ -357,50 +485,100 @@ class OllamaAI:
             )
         return True
     
-    def generate_response(self, prompt, max_tokens=2000, temperature=0.8):
-        """Generate AI response using Ollama - MANDATORY"""
+    def generate_response(self, prompt, max_tokens=2000, temperature=0.8, retries=2):
+        """Generate AI response using Ollama - MANDATORY with retry logic"""
         self.require_connection()
         
         if not self.available:
             raise RuntimeError("Ollama is not available. Install requests: pip install requests")
         
-        try:
-            response = requests.post(
-                f"{self.base_url}/api/generate",
-                json={
-                    "model": self.model,
-                    "prompt": prompt,
-                    "stream": False,
-                    "options": {
-                        "temperature": temperature,
-                        "num_predict": max_tokens,
-                        "top_p": 0.9,
-                        "repeat_penalty": 1.1  # Reduce repetition
-                    }
-                },
-                timeout=120  # Longer timeout for larger responses
-            )
-            if response.status_code == 200:
-                result = response.json().get("response", "")
-                # Clean up the response
-                if result:
-                    # Remove any leading/trailing whitespace
-                    result = result.strip()
-                    # Remove common prefixes that models sometimes add
-                    prefixes_to_remove = ["Here's", "Here is", "The tailored resume:", "Tailored Resume:", "Resume:"]
-                    for prefix in prefixes_to_remove:
-                        if result.startswith(prefix):
-                            result = result[len(prefix):].strip()
-                return result
-            else:
-                st.error(f"Ollama API error: {response.status_code} - {response.text}")
-                return None
-        except requests.exceptions.Timeout:
-            st.error("Ollama request timed out. Try reducing the content size or using a faster model.")
-            return None
-        except Exception as e:
-            st.error(f"Ollama error: {str(e)}")
-            return None
+        # Calculate timeout based on content size and max_tokens
+        # Rough estimate: 1 token per 4 characters, plus processing time
+        estimated_time = max(180, (len(prompt) / 4 + max_tokens) * 0.1)  # At least 3 minutes, or based on content
+        timeout = min(600, int(estimated_time))  # Max 10 minutes
+        
+        for attempt in range(retries + 1):
+            try:
+                # Show progress for long operations
+                if attempt > 0:
+                    st.info(f"Retrying Ollama request (attempt {attempt + 1}/{retries + 1})...")
+                
+                response = requests.post(
+                    f"{self.base_url}/api/generate",
+                    json={
+                        "model": self.model,
+                        "prompt": prompt,
+                        "stream": False,
+                        "options": {
+                            "temperature": temperature,
+                            "num_predict": max_tokens,
+                            "top_p": 0.9,
+                            "repeat_penalty": 1.1  # Reduce repetition
+                        }
+                    },
+                    timeout=timeout
+                )
+                
+                if response.status_code == 200:
+                    result = response.json().get("response", "")
+                    # Clean up the response
+                    if result:
+                        # Remove any leading/trailing whitespace
+                        result = result.strip()
+                        # Remove common prefixes that models sometimes add
+                        prefixes_to_remove = ["Here's", "Here is", "The tailored resume:", "Tailored Resume:", "Resume:"]
+                        for prefix in prefixes_to_remove:
+                            if result.startswith(prefix):
+                                result = result[len(prefix):].strip()
+                        return result
+                    else:
+                        raise ValueError("Empty response from Ollama")
+                else:
+                    error_msg = f"Ollama API error: {response.status_code}"
+                    if response.text:
+                        error_msg += f" - {response.text[:200]}"
+                    raise RuntimeError(error_msg)
+                    
+            except requests.exceptions.Timeout:
+                if attempt < retries:
+                    # Exponential backoff
+                    import time
+                    wait_time = (2 ** attempt) * 5  # 5s, 10s, 20s
+                    st.warning(f"Request timed out. Retrying in {wait_time} seconds...")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    raise TimeoutError(
+                        f"Ollama request timed out after {timeout} seconds. "
+                        f"This might be due to:\n"
+                        f"1. Large content size - try processing smaller sections\n"
+                        f"2. Slow model - try a faster model like 'llama2:7b' or 'mistral:7b'\n"
+                        f"3. Ollama server overload - check if other processes are using it"
+                    )
+            except requests.exceptions.ConnectionError as e:
+                if attempt < retries:
+                    import time
+                    wait_time = (2 ** attempt) * 3
+                    st.warning(f"Connection error. Retrying in {wait_time} seconds...")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    raise ConnectionError(
+                        f"Cannot connect to Ollama at {self.base_url}. "
+                        f"Make sure Ollama is running: 'ollama serve'"
+                    )
+            except Exception as e:
+                if attempt < retries and "timeout" in str(e).lower():
+                    import time
+                    wait_time = (2 ** attempt) * 5
+                    st.warning(f"Error occurred. Retrying in {wait_time} seconds...")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    raise RuntimeError(f"Ollama error: {str(e)}")
+        
+        # Should not reach here, but just in case
+        raise RuntimeError("Failed to generate response after all retries")
     
     def enhance_resume_section(self, section_text, job_description=""):
         """Enhance a resume section using AI"""
@@ -456,8 +634,17 @@ Suggestions:"""
     
     def tailor_resume(self, resume_text, job_description, job_title=""):
         """Tailor resume to job description using AI - completely rewrite content"""
-        # Use full resume text, not truncated
-        full_resume = resume_text[:3000] if len(resume_text) > 3000 else resume_text
+        # Optimize content size to prevent timeouts
+        # Keep resume text reasonable but informative
+        if len(resume_text) > 4000:
+            # For very long resumes, take first 2000 and last 2000 chars
+            full_resume = resume_text[:2000] + "\n\n[... content truncated for processing ...]\n\n" + resume_text[-2000:]
+        else:
+            full_resume = resume_text
+        
+        # Limit job description size too
+        if len(job_description) > 2000:
+            job_description = job_description[:2000] + "\n[... job description truncated ...]"
         
         prompt = f"""You are an expert resume writer. Completely tailor and rewrite this resume to match the job description. DO NOT just change job titles - rewrite the actual content, bullet points, and descriptions to align with the job requirements.
 
@@ -489,10 +676,15 @@ Now provide a COMPLETE rewritten resume that:
 
 Provide the complete tailored resume:"""
         
-        return self.generate_response(prompt, max_tokens=2500, temperature=0.85)
+        # Use slightly lower max_tokens to reduce processing time
+        return self.generate_response(prompt, max_tokens=2000, temperature=0.85)
     
     def generate_complete_resume(self, user_info, job_title, job_description):
         """Generate a complete resume from scratch using AI"""
+        # Limit job description size to prevent timeouts
+        if len(job_description) > 2000:
+            job_description = job_description[:2000] + "\n[... job description truncated ...]"
+        
         prompt = f"""You are an expert resume writer. Create a complete, professional resume for the following person targeting this specific job.
 
 User Information:
@@ -530,7 +722,8 @@ IMPORTANT:
 
 Format the resume with clear section headers in ALL CAPS. Provide the complete resume:"""
         
-        return self.generate_response(prompt, max_tokens=2500, temperature=0.85)
+        # Use slightly lower max_tokens to reduce processing time
+        return self.generate_response(prompt, max_tokens=2000, temperature=0.85)
     
     def enhance_experience_section(self, experience_text, job_description, job_title):
         """Enhance experience section with AI - rewrite bullets"""
@@ -1159,6 +1352,20 @@ def main():
         st.session_state.ollama.base_url = ollama_url
         st.session_state.ollama.model = ollama_model
         
+        with st.expander("💡 Model Recommendations"):
+            st.markdown("""
+            **For faster processing:**
+            - `llama2:7b` or `llama2:13b` - Good balance
+            - `mistral:7b` - Fast and efficient
+            - `codellama:7b` - For technical resumes
+            
+            **For better quality (slower):**
+            - `llama2:70b` - Best quality but slow
+            - `mistral:13b` - Good quality
+            
+            **Note:** Larger models take longer but produce better results.
+            """)
+        
         if st.button("🔌 Test Connection"):
             if st.session_state.ollama.check_connection():
                 st.success("✅ Connected to Ollama!")
@@ -1228,7 +1435,7 @@ def main():
                             st.metric("Word Count", word_count)
                     
                     # Detailed Analysis Tabs
-                    analysis_tab1, analysis_tab2, analysis_tab3 = st.tabs(["✅ Matched Skills", "❌ Missing Skills", "💡 Suggestions"])
+                    analysis_tab1, analysis_tab2, analysis_tab3, analysis_tab4 = st.tabs(["✅ Matched Skills", "❌ Missing Skills", "🔑 ATS Keywords", "💡 Suggestions"])
                     
                     with analysis_tab1:
                         if analysis['matched_skills']:
@@ -1276,6 +1483,127 @@ def main():
                             st.success("Great! You have all the required skills mentioned in the job description.")
                     
                     with analysis_tab3:
+                        st.subheader("🔑 ATS Keywords Analysis")
+                        st.markdown("**Keywords extracted from the job description that ATS systems look for:**")
+                        
+                        # Extract ATS keywords
+                        ats_keywords = processor.extract_ats_keywords(job_description)
+                        resume_lower = st.session_state.resume_content.lower()
+                        
+                        # Analyze keyword matches
+                        keyword_analysis = {}
+                        for category, keywords_list in ats_keywords.items():
+                            if category == 'all_keywords':
+                                continue
+                            matched = []
+                            missing = []
+                            for keyword in keywords_list:
+                                if keyword.lower() in resume_lower:
+                                    matched.append(keyword)
+                                else:
+                                    missing.append(keyword)
+                            keyword_analysis[category] = {
+                                'matched': matched,
+                                'missing': missing,
+                                'total': len(keywords_list),
+                                'match_rate': (len(matched) / len(keywords_list) * 100) if keywords_list else 0
+                            }
+                        
+                        # Display keyword categories
+                        col_k1, col_k2 = st.columns(2)
+                        
+                        with col_k1:
+                            st.markdown("### ✅ Found in Resume")
+                            for category, data in keyword_analysis.items():
+                                if data['matched']:
+                                    with st.expander(f"**{category.replace('_', ' ').title()}** ({len(data['matched'])}/{data['total']})"):
+                                        # Display as badges
+                                        keywords_display = " ".join([f"`{kw}`" for kw in data['matched'][:20]])
+                                        st.markdown(keywords_display)
+                                        if len(data['matched']) > 20:
+                                            st.caption(f"... and {len(data['matched']) - 20} more")
+                        
+                        with col_k2:
+                            st.markdown("### ❌ Missing from Resume")
+                            for category, data in keyword_analysis.items():
+                                if data['missing']:
+                                    with st.expander(f"**{category.replace('_', ' ').title()}** ({len(data['missing'])} missing)"):
+                                        # Display as badges
+                                        keywords_display = " ".join([f"`{kw}`" for kw in data['missing'][:20]])
+                                        st.markdown(keywords_display)
+                                        if len(data['missing']) > 20:
+                                            st.caption(f"... and {len(data['missing']) - 20} more")
+                        
+                        # Summary statistics
+                        st.markdown("---")
+                        st.markdown("### 📊 Keyword Match Summary")
+                        summary_cols = st.columns(len(keyword_analysis))
+                        for idx, (category, data) in enumerate(keyword_analysis.items()):
+                            with summary_cols[idx % len(summary_cols)]:
+                                st.metric(
+                                    category.replace('_', ' ').title(),
+                                    f"{data['match_rate']:.0f}%",
+                                    f"{len(data['matched'])}/{data['total']}"
+                                )
+                        
+                        # Action buttons
+                        st.markdown("---")
+                        col_btn1, col_btn2 = st.columns(2)
+                        with col_btn1:
+                            if st.button("📋 Copy All Missing Keywords", key="copy_missing_keywords"):
+                                all_missing = []
+                                for data in keyword_analysis.values():
+                                    all_missing.extend(data['missing'])
+                                missing_text = ", ".join(set(all_missing))
+                                st.code(missing_text, language=None)
+                                st.success("Keywords copied! Add these to your resume to improve ATS score.")
+                        
+                        with col_btn2:
+                            if st.button("➕ Add Top Missing Keywords to Resume", key="add_missing_keywords"):
+                                # Get top missing keywords from all categories
+                                all_missing = []
+                                for data in keyword_analysis.values():
+                                    all_missing.extend(data['missing'][:3])  # Top 3 from each category
+                                
+                                # Add to resume
+                                lines = st.session_state.edited_content.split('\n')
+                                
+                                # Find or create skills section
+                                skills_section_idx = None
+                                for i, line in enumerate(lines):
+                                    if "SKILL" in line.upper() and "SECTION" not in line.upper():
+                                        skills_section_idx = i
+                                        break
+                                
+                                if skills_section_idx is not None:
+                                    # Add to existing skills line
+                                    if skills_section_idx + 1 < len(lines):
+                                        existing_skills = lines[skills_section_idx + 1]
+                                        new_keywords_str = ", ".join(set(all_missing[:10]))
+                                        lines[skills_section_idx + 1] = existing_skills + f", {new_keywords_str}"
+                                    else:
+                                        lines.append(", ".join(set(all_missing[:10])))
+                                else:
+                                    # Create new skills section
+                                    lines.append("\nSKILLS")
+                                    lines.append(", ".join(set(all_missing[:10])))
+                                
+                                st.session_state.edited_content = '\n'.join(lines)
+                                st.success(f"Added {len(set(all_missing[:10]))} missing keywords!")
+                                st.rerun()
+                        
+                        # Tips
+                        st.markdown("---")
+                        st.info("""
+                        **💡 Tips for ATS Optimization:**
+                        - Include as many relevant keywords from the job description as possible
+                        - Use the exact terminology from the job posting (e.g., "Python" not "python programming")
+                        - Spread keywords naturally throughout your resume, not just in the skills section
+                        - Include both technical skills and soft skills mentioned in the job description
+                        - Match the job description's language style and terminology
+                        """)
+                    
+                    with analysis_tab4:
                         st.info("**Enhancement Suggestions:**")
                         suggestions = []
                         
@@ -1318,8 +1646,13 @@ def main():
                                         st.info(ai_suggestions)
                                     else:
                                         st.warning("Could not get AI suggestions.")
+                                except TimeoutError as e:
+                                    st.error(f"⏱️ **Timeout Error:** {str(e)}")
+                                    st.info("💡 Try using a faster model or reducing resume content size.")
+                                except ConnectionError as e:
+                                    st.error(f"🔌 **Connection Error:** {str(e)}")
                                 except Exception as e:
-                                    st.error(f"Error getting AI suggestions: {str(e)}")
+                                    st.error(f"❌ **Error:** {str(e)}")
                 
                 st.markdown("---")
                 st.subheader("✏️ Edit Your Resume Content")
@@ -1376,8 +1709,13 @@ def main():
                                             st.success("Professional Summary added!")
                                         else:
                                             st.error("Could not generate summary. Please try again.")
+                                    except TimeoutError as e:
+                                        st.error(f"⏱️ **Timeout Error:** {str(e)}")
+                                        st.info("💡 Try using a faster model or reducing resume content size.")
+                                    except ConnectionError as e:
+                                        st.error(f"🔌 **Connection Error:** {str(e)}")
                                     except Exception as e:
-                                        st.error(f"Error generating summary: {str(e)}")
+                                        st.error(f"❌ **Error:** {str(e)}")
                             else:
                                 st.warning("Summary section already exists!")
                         
@@ -1394,8 +1732,13 @@ def main():
                                         st.rerun()
                                     else:
                                         st.warning("Could not enhance resume.")
+                                except TimeoutError as e:
+                                    st.error(f"⏱️ **Timeout Error:** {str(e)}")
+                                    st.info("💡 Try using a faster model or reducing resume content size.")
+                                except ConnectionError as e:
+                                    st.error(f"🔌 **Connection Error:** {str(e)}")
                                 except Exception as e:
-                                    st.error(f"Error enhancing resume: {str(e)}")
+                                    st.error(f"❌ **Error:** {str(e)}")
                         
                         if st.button("🔍 Highlight Skills in Resume"):
                             if job_description:
@@ -1482,7 +1825,7 @@ def main():
                         # AI Tailor button - Always available
                         if job_description:
                             if st.button("🎯 AI Tailor Resume", key="ai_tailor"):
-                                with st.spinner("AI is tailoring your resume to the job description (this may take a minute)..."):
+                                with st.spinner("AI is tailoring your resume to the job description (this may take 2-5 minutes depending on model size)..."):
                                     try:
                                         tailored = st.session_state.ollama.tailor_resume(
                                             st.session_state.edited_content, job_description, job_title
@@ -1493,8 +1836,15 @@ def main():
                                             st.rerun()
                                         else:
                                             st.warning("Could not tailor resume.")
+                                    except TimeoutError as e:
+                                        st.error(f"⏱️ **Timeout Error:** {str(e)}")
+                                        st.info("💡 **Tips to fix:**\n- Try using a faster model (e.g., `llama2:7b` or `mistral:7b`)\n- Reduce the resume content size\n- Check if Ollama has enough system resources")
+                                    except ConnectionError as e:
+                                        st.error(f"🔌 **Connection Error:** {str(e)}")
                                     except Exception as e:
-                                        st.error(f"Error tailoring resume: {str(e)}")
+                                        st.error(f"❌ **Error:** {str(e)}")
+                                        if "timeout" in str(e).lower():
+                                            st.info("💡 Try using a faster model or reducing content size.")
                         else:
                             st.info("Enter a job description in the sidebar to tailor your resume.")
                 
@@ -1569,7 +1919,7 @@ def main():
             if not job_title or not job_description:
                 st.error("Please enter both Job Title and Job Description")
             else:
-                with st.spinner("AI is creating your professional resume (this may take a minute)..."):
+                with st.spinner("AI is creating your professional resume (this may take 2-5 minutes depending on model size)..."):
                     try:
                         user_info = {
                             'name': name,
@@ -1589,8 +1939,15 @@ def main():
                         st.balloons()
                         st.success("✅ Resume generated successfully!")
                         
+                    except TimeoutError as e:
+                        st.error(f"⏱️ **Timeout Error:** {str(e)}")
+                        st.info("💡 **Tips to fix:**\n- Try using a faster model (e.g., `llama2:7b` or `mistral:7b`)\n- Reduce the job description size\n- Check if Ollama has enough system resources")
+                    except ConnectionError as e:
+                        st.error(f"🔌 **Connection Error:** {str(e)}")
                     except Exception as e:
-                        st.error(f"Error: {str(e)}")
+                        st.error(f"❌ **Error:** {str(e)}")
+                        if "timeout" in str(e).lower():
+                            st.info("💡 Try using a faster model or reducing content size.")
         
         # Display generated resume
         if st.session_state.edited_content and option == "🎯 Generate from Scratch":
@@ -1630,11 +1987,106 @@ def main():
         elif not job_description:
             st.warning("Please enter a job description in the sidebar.")
         else:
+            # Show ATS Keywords Analysis
+            st.markdown("---")
+            st.subheader("🔑 ATS Keywords Analysis")
+            
+            with st.spinner("Extracting ATS keywords..."):
+                ats_keywords = processor.extract_ats_keywords(job_description)
+                resume_lower = st.session_state.resume_content.lower()
+                
+                # Analyze keyword matches
+                keyword_analysis = {}
+                for category, keywords_list in ats_keywords.items():
+                    if category == 'all_keywords':
+                        continue
+                    matched = []
+                    missing = []
+                    for keyword in keywords_list:
+                        if keyword.lower() in resume_lower:
+                            matched.append(keyword)
+                        else:
+                            missing.append(keyword)
+                    keyword_analysis[category] = {
+                        'matched': matched,
+                        'missing': missing,
+                        'total': len(keywords_list),
+                        'match_rate': (len(matched) / len(keywords_list) * 100) if keywords_list else 0
+                    }
+            
+            # Display summary metrics
+            col_k1, col_k2, col_k3, col_k4 = st.columns(4)
+            total_matched = sum(len(data['matched']) for data in keyword_analysis.values())
+            total_keywords = sum(data['total'] for data in keyword_analysis.values())
+            total_missing = sum(len(data['missing']) for data in keyword_analysis.values())
+            
+            with col_k1:
+                st.metric("Total Keywords", total_keywords)
+            with col_k2:
+                st.metric("Keywords Found", total_matched, delta=f"{total_matched}/{total_keywords}")
+            with col_k3:
+                st.metric("Keywords Missing", total_missing)
+            with col_k4:
+                overall_match = (total_matched / total_keywords * 100) if total_keywords > 0 else 0
+                st.metric("Match Rate", f"{overall_match:.1f}%")
+            
+            # Display keyword categories in expandable sections
+            keyword_tab1, keyword_tab2 = st.tabs(["✅ Found Keywords", "❌ Missing Keywords"])
+            
+            with keyword_tab1:
+                st.markdown("### Keywords Found in Your Resume")
+                for category, data in keyword_analysis.items():
+                    if data['matched']:
+                        with st.expander(f"**{category.replace('_', ' ').title()}** - {len(data['matched'])}/{data['total']} found ({data['match_rate']:.0f}%)"):
+                            keywords_display = " ".join([f"`{kw}`" for kw in data['matched']])
+                            st.markdown(keywords_display)
+            
+            with keyword_tab2:
+                st.markdown("### Keywords Missing from Your Resume")
+                st.info("💡 Adding these keywords will improve your ATS score!")
+                for category, data in keyword_analysis.items():
+                    if data['missing']:
+                        with st.expander(f"**{category.replace('_', ' ').title()}** - {len(data['missing'])} missing"):
+                            keywords_display = " ".join([f"`{kw}`" for kw in data['missing']])
+                            st.markdown(keywords_display)
+                
+                # Button to add missing keywords
+                if st.button("➕ Add Top Missing Keywords to Resume", key="add_missing_keywords_tailor"):
+                    all_missing = []
+                    for data in keyword_analysis.values():
+                        all_missing.extend(data['missing'][:5])  # Top 5 from each category
+                    
+                    lines = st.session_state.resume_content.split('\n')
+                    
+                    # Find or create skills section
+                    skills_section_idx = None
+                    for i, line in enumerate(lines):
+                        if "SKILL" in line.upper() and "SECTION" not in line.upper():
+                            skills_section_idx = i
+                            break
+                    
+                    if skills_section_idx is not None:
+                        if skills_section_idx + 1 < len(lines):
+                            existing_skills = lines[skills_section_idx + 1]
+                            new_keywords_str = ", ".join(set(all_missing[:15]))
+                            lines[skills_section_idx + 1] = existing_skills + f", {new_keywords_str}"
+                        else:
+                            lines.append(", ".join(set(all_missing[:15])))
+                    else:
+                        lines.append("\nSKILLS")
+                        lines.append(", ".join(set(all_missing[:15])))
+                    
+                    st.session_state.resume_content = '\n'.join(lines)
+                    st.session_state.edited_content = st.session_state.resume_content
+                    st.success(f"Added {len(set(all_missing[:15]))} missing keywords!")
+                    st.rerun()
+            
+            st.markdown("---")
             st.subheader("Original Resume Content")
             st.text_area("Original", st.session_state.resume_content, height=200, key="tailor_original")
             
             if st.button("🎯 Tailor for Job Description", type="primary"):
-                with st.spinner("AI is tailoring your resume (this may take a minute)..."):
+                with st.spinner("AI is tailoring your resume (this may take 2-5 minutes depending on model size)..."):
                     try:
                         jd_skills = processor.extract_skills_from_jd(job_description)
                         tailored_resume = processor.tailor_existing_resume(
@@ -1656,8 +2108,15 @@ def main():
                             st.metric("Skills Matched", f"{analysis['skills_found']}/{analysis['total_jd_skills']}")
                         
                         st.success("✅ Resume tailored successfully!")
+                    except TimeoutError as e:
+                        st.error(f"⏱️ **Timeout Error:** {str(e)}")
+                        st.info("💡 **Tips to fix:**\n- Try using a faster model (e.g., `llama2:7b` or `mistral:7b`)\n- Reduce the resume content size\n- Check if Ollama has enough system resources")
+                    except ConnectionError as e:
+                        st.error(f"🔌 **Connection Error:** {str(e)}")
                     except Exception as e:
-                        st.error(f"Error tailoring resume: {str(e)}")
+                        st.error(f"❌ **Error:** {str(e)}")
+                        if "timeout" in str(e).lower():
+                            st.info("💡 Try using a faster model or reducing content size.")
             
             if st.session_state.edited_content and option == "🔧 Tailor Existing Resume":
                 st.subheader("✨ Tailored Resume")
